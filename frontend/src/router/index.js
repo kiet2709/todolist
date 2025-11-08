@@ -4,6 +4,9 @@ import HelloWorld from '../components/HelloWorld.vue'
 import TaskDetail from '../components/TaskDetail.vue'
 import CreateTask from '../components/CreateTask.vue'
 import Dashboard from '../components/Dashboard.vue'
+import ListTasks from '../components/ListTasks.vue'
+import SpaceManagement from '../components/SpaceManagement.vue'
+import ListSpace from '../components/ListSpace.vue'
 
 const routes = [
   {
@@ -19,10 +22,20 @@ const routes = [
         name: 'home',
         component: HelloWorld
       },
+        {
+        path: 'tasks',
+        name: 'tasks',
+        component: ListTasks
+      },
       {
-        path: 'hello',
-        name: 'hello',
-        component: HelloWorld
+        path: 'main',
+        name: 'main',
+        component: SpaceManagement
+      },
+      {
+        path: 'spaces',
+        name: 'spaces',
+        component: ListSpace
       },
       {
         path: 'detail',
