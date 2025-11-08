@@ -10,7 +10,7 @@
 
       <!-- Content -->
       <a-layout-content class="content">
-        <div class="content-inner">
+        <div class="content-inner" :style="{ width: sidebarCollapsed ? 'calc(100vw - 64px)' : 'calc(100vw - 256px)', transition: 'margin 0.2s' }" >
           <router-view />
         </div>
       </a-layout-content>
@@ -37,18 +37,15 @@ const toggleSidebar = () => {
 }
 
 .content {
-  margin: 24px;
-  padding: 24px;
   background: #f9f9f9;
-  border-radius: 8px;
-  min-height: calc(100vh - 64px - 48px);
+  min-height: 100vh;
   overflow: auto;
 }
 
 .content-inner {
   background: #fff;
-  padding: 24px;
-  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  height: 100vh;
+  /* width: calc(100vw - 256px); */
 }
 </style>
