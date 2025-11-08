@@ -37,10 +37,7 @@ const toggleSidebar = () => {
 }
 
 .content {
-  margin: 24px;
-  padding: 24px;
   background: #f9f9f9;
-  border-radius: 8px;
   min-height: calc(100vh - 64px - 48px);
   overflow: auto;
 }
@@ -48,7 +45,6 @@ const toggleSidebar = () => {
 .content-inner {
   background: #fff;
   padding: 24px;
-  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 </style>
