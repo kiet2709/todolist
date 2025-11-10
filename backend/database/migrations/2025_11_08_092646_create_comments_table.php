@@ -13,9 +13,9 @@ return new class extends Migration
     {
         Schema::create('comments', function (Blueprint $table) {
             $table->uuid('uuid')->primary();
-            $table->text('content');
-            $table->string('user_id');
-            $table->string('parent_id');
+            $table->text('content')->nullable();;
+            $table->string('user_id')->nullable();;
+            $table->string('parent_id')->nullable();
             $table->dateTime('created_date')->nullable();
             $table->dateTime('updated_date')->nullable();
             $table->dateTime('deleted_date')->nullable();
