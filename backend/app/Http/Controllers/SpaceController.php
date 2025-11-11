@@ -328,4 +328,69 @@ class SpaceController extends Controller
             ], 500);
         }
     }
+
+        /**
+     * GET /?c=Space&m=types
+     * Trả về options cho select type_id
+     */
+    public function types(Request $request)
+    {
+        $rows = DB::table('space_types')
+            ->whereNull('deleted_date')
+            ->orderBy('name')
+            ->select('uuid', 'name')
+            ->get();
+
+        $options = $rows->map(fn($r) => [
+            'value' => $r->uuid,
+            'label' => $r->name,
+        ])->values();
+
+        return response()->json(['data' => $options]);
+    }
+
+    /**
+     * GET /?c=Space&m=leads
+     * Trả về options cho select lead_id
+     */
+    public function leads(Request $request)
+    {
+        // Chọn username/name + email (COALESCE phòng khi 1 trong 2 cột không có)
+        $rows = DB::table('users')
+            ->orderBy('username')
+            ->select(
+                'uuid',
+                DB::raw('COALESCE(username) as label_name'),
+                'email'
+            )
+            ->get();
+
+        $options = $rows->map(function ($r) {
+            $label = trim(($r->label_name ?? '') . ($r->email ? " ({$r->email})" : ''));
+            return [
+                'value' => $r->uuid,
+                'label' => $label ?: $r->uuid,
+            ];
+        })->values();
+
+        return response()->json(['data' => $options]);
+    }
+
+    /**
+     * GET /?c=Space&m=statuses
+     * Trả về danh sách status distinct để populate filter
+     */
+    public function statuses(Request $request)
+    {
+        $rows = DB::table('spaces')
+            ->whereNull('deleted_date')
+            ->whereNotNull('status')
+            ->distinct()
+            ->orderBy('status')
+            ->pluck('status');
+
+        $options = $rows->map(fn($s) => ['value' => $s, 'label' => $s])->values();
+
+        return response()->json(['data' => $options]);
+    }
 }
