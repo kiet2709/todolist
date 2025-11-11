@@ -1,19 +1,23 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      <h1 class="title">Spaces</h1>
-      <div class="right-actions">
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-left">
+        <h1 class="title">Spaces</h1>
+        <p class="subtitle">Quản lý & theo dõi không gian làm việc của bạn.</p>
+      </div>
+      <div class="hero-actions">
         <a-button type="primary" @click="openCreate">Create space</a-button>
       </div>
     </div>
 
-    <!-- Toolbar -->
-    <div class="toolbar">
+    <!-- Toolbar (glass) -->
+    <div class="toolbar glass">
       <a-input
         v-model:value="state.q"
         allow-clear
         placeholder="Search spaces (name, key, url)"
-        style="width: 280px"
+        class="toolbar-input"
         @change="goFirstPageAndLoad"
         @pressEnter="goFirstPageAndLoad"
       >
@@ -29,7 +33,7 @@
         :options="typeOptions"
         allow-clear
         placeholder="Filter by type"
-        style="width: 200px"
+        class="toolbar-select"
         @change="goFirstPageAndLoad"
       />
 
@@ -39,7 +43,7 @@
         show-search
         allow-clear
         placeholder="Lead"
-        style="width: 240px"
+        class="toolbar-select wide"
         option-filter-prop="label"
         @change="goFirstPageAndLoad"
       />
@@ -49,11 +53,11 @@
         :options="statusOptions"
         allow-clear
         placeholder="Status"
-        style="width: 160px"
+        class="toolbar-select"
         @change="goFirstPageAndLoad"
       />
 
-      <a-divider type="vertical" />
+      <a-divider type="vertical" class="divider" />
 
       <a-dropdown trigger="click">
         <a-button>Columns</a-button>
@@ -68,95 +72,119 @@
         </template>
       </a-dropdown>
 
-      <a-button @click="exportCSV">Export CSV</a-button>
-
       <div class="spacer"></div>
 
       <template v-if="selectedRowKeys.length">
-        <a-popconfirm title="Delete selected?" ok-text="Delete" cancel-text="Cancel" @confirm="bulkDelete">
+        <a-popconfirm
+          title="Delete selected?"
+          ok-text="Delete"
+          cancel-text="Cancel"
+          @confirm="bulkDelete"
+        >
           <a-button danger>Delete ({{ selectedRowKeys.length }})</a-button>
         </a-popconfirm>
       </template>
     </div>
 
-    <!-- Table -->
-    <a-table
-      :data-source="rows"
-      :columns="tableColumns"
-      :row-key="row => row.uuid"
-      :pagination="false"
-      :size="density"
-      :row-selection="rowSelection"
-      class="spaces-table"
-      bordered
-    >
-      <template #bodyCell="{ column, record, text }">
-        <!-- Name (clickable if URL) -->
-        <template v-if="column.key === 'name'">
-          <div class="cell-name">
-            <a
-              v-if="record.url"
-              class="link-like"
-              :href="record.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              @click.stop
-            >{{ record.name }}</a>
-            <span v-else>{{ record.name }}</span>
-          </div>
-        </template>
+    <!-- Table block -->
+    <div class="table-wrap glass">
+      <!-- Skeleton loading overlay -->
+      <transition name="fade">
+        <div v-if="loading.table" class="skeleton-overlay">
+          <div class="skeleton-header"></div>
+          <div class="skeleton-row" v-for="i in 8" :key="'sk-'+i"></div>
+        </div>
+      </transition>
 
-        <!-- Key -->
-        <template v-else-if="column.key === 'key'">
-          <code class="mono">{{ record.key }}</code>
-        </template>
+      <a-table
+        :data-source="rows"
+        :columns="tableColumns"
+        :row-key="row => row.uuid"
+        :pagination="false"
+        :size="density"
+        :row-selection="rowSelection"
+        class="spaces-table"
+        bordered
+      >
+        <template #bodyCell="{ column, record, text }">
+          <!-- Name (clickable if URL) -->
+          <template v-if="column.key === 'name'">
+            <div class="cell-name hover-rise-inline">
+              <div class="avatar">{{ (record.name || '').slice(0,1).toUpperCase() }}</div>
+              <div class="name-meta">
+                <a
+                  v-if="record.url"
+                  class="link-like"
+                  :href="record.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                >{{ record.name }}</a>
+                <span v-else class="strong">{{ record.name }}</span>
+                <div class="chips">
+                  <span class="chip" v-if="record.type_name">{{ record.type_name }}</span>
+                  <span class="chip neutral" v-if="record.status">{{ record.status }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
 
-        <!-- Type -->
-        <template v-else-if="column.key === 'type_name'">
-          <a-tag>{{ record.type_name || '—' }}</a-tag>
-        </template>
+          <!-- Key -->
+          <template v-else-if="column.key === 'key'">
+            <code class="mono badge">{{ record.key }}</code>
+          </template>
 
-        <!-- Lead -->
-        <template v-else-if="column.key === 'lead'">
-          <div class="lead">
-            <a-avatar size="small">{{ initialsFrom(record.lead_username || record.lead_email) }}</a-avatar>
-            <span class="lead-name">
-              <a-tooltip :title="record.lead_email">{{ record.lead_username || '—' }}</a-tooltip>
-            </span>
-          </div>
-        </template>
+          <!-- Type -->
+          <template v-else-if="column.key === 'type_name'">
+            <a-tag>{{ record.type_name || '—' }}</a-tag>
+          </template>
 
-        <!-- Status -->
-        <template v-else-if="column.key === 'status'">
-          <a-tag :color="statusColor(record.status)">{{ record.status || '—' }}</a-tag>
-        </template>
+          <!-- Lead -->
+          <template v-else-if="column.key === 'lead'">
+            <div class="lead">
+              <a-avatar size="small">{{ initialsFrom(record.lead_username || record.lead_email) }}</a-avatar>
+              <span class="lead-name">
+                <a-tooltip :title="record.lead_email">{{ record.lead_username || '—' }}</a-tooltip>
+              </span>
+            </div>
+          </template>
 
-        <!-- Updated -->
-        <template v-else-if="column.key === 'updated_date'">
-          <span class="muted">{{ formatDate(record.updated_date) }}</span>
-        </template>
+          <!-- Status -->
+          <template v-else-if="column.key === 'status'">
+            <a-tag :color="statusColor(record.status)">{{ record.status || '—' }}</a-tag>
+          </template>
 
-        <!-- Actions -->
-        <template v-else-if="column.key === 'actions'">
-          <a-dropdown :trigger="['click']">
-            <a-button size="small">⋯</a-button>
-            <template #overlay>
-              <a-menu>
-                <a-menu-item @click="record.url ? openUrl(record.url) : null" :disabled="!record.url">Open</a-menu-item>
-                <a-menu-item @click="copy(record.url)" :disabled="!record.url">Copy URL</a-menu-item>
-                <a-menu-divider />
-                <a-menu-item @click="openEdit(record)">Edit</a-menu-item>
-                <a-menu-item danger @click="deleteOne(record)">Delete</a-menu-item>
-              </a-menu>
-            </template>
-          </a-dropdown>
-        </template>
+          <!-- Updated -->
+          <template v-else-if="column.key === 'updated_date'">
+            <span class="muted">{{ formatDate(record.updated_date) }}</span>
+          </template>
 
-        <template v-else>
-          {{ text }}
+          <!-- Actions -->
+          <template v-else-if="column.key === 'actions'">
+            <a-dropdown :trigger="['click']">
+              <a-button size="small">⋯</a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item @click="record.url ? openUrl(record.url) : null" :disabled="!record.url">Open</a-menu-item>
+                  <a-menu-item @click="copy(record.url)" :disabled="!record.url">Copy URL</a-menu-item>
+                  <a-menu-divider />
+                  <a-menu-item @click="openEdit(record)">Edit</a-menu-item>
+                  <a-menu-item danger @click="deleteOne(record)">Delete</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+          </template>
+
+          <template v-else>
+            {{ text }}
+          </template>
         </template>
-      </template>
-    </a-table>
+      </a-table>
+
+      <div v-if="!loading.table && !rows.length" class="empty-state">
+        <a-empty description="No spaces found" />
+      </div>
+    </div>
 
     <!-- Pagination -->
     <div class="pagination">
@@ -291,7 +319,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, h, onMounted } from 'vue'
+import { ref, reactive, computed, h, onMounted, watch } from 'vue'
 import {
   Input as AInput,
   Select as ASelect,
@@ -309,6 +337,7 @@ import {
   Modal as AModal,
   Form as AForm,
   Alert as AAlert,
+  Empty as AEmpty,
   message
 } from 'ant-design-vue'
 import 'ant-design-vue/dist/reset.css'
@@ -328,7 +357,10 @@ const state = reactive({
 
 const density = ref('middle')
 
-const rows = ref([]) // dữ liệu spaces từ server
+const rows = ref([])
+const loading = reactive({
+  table: false
+})
 const pagination = reactive({
   current_page: 1,
   per_page: 10,
@@ -359,6 +391,7 @@ const columnLabels = {
 }
 const allColumnKeys = ['name','key','type_name','lead','status','updated_date','actions']
 const visibleColsSet = ref(new Set(allColumnKeys))
+
 const toggleColumn = (key) => {
   const set = new Set(visibleColsSet.value)
   if (set.has(key)) set.delete(key); else set.add(key)
@@ -369,12 +402,12 @@ const toggleColumn = (key) => {
 
 const tableColumns = computed(() => {
   const cols = []
-  if (visibleColsSet.value.has('name')) cols.push(sortableHeader('Name', 'name', 260))
+  if (visibleColsSet.value.has('name')) cols.push(sortableHeader('Name', 'name', 320))
   if (visibleColsSet.value.has('key'))  cols.push(sortableHeader('Key', 'key', 120))
-  if (visibleColsSet.value.has('type_name')) cols.push({ title: 'Type', dataIndex: 'type_name', key: 'type_name', width: 180 })
-  if (visibleColsSet.value.has('lead')) cols.push({ title: 'Lead', dataIndex: 'lead', key: 'lead', width: 240 })
+  if (visibleColsSet.value.has('type_name')) cols.push({ title: 'Type', dataIndex: 'type_name', key: 'type_name', width: 160 })
+  if (visibleColsSet.value.has('lead')) cols.push({ title: 'Lead', dataIndex: 'lead', key: 'lead', width: 220 })
   if (visibleColsSet.value.has('status')) cols.push(sortableHeader('Status', 'status', 140))
-  if (visibleColsSet.value.has('updated_date')) cols.push(sortableHeader('Updated', 'updated_date', 160))
+  if (visibleColsSet.value.has('updated_date')) cols.push(sortableHeader('Updated', 'updated_date', 170))
   if (visibleColsSet.value.has('actions')) cols.push({ title: '', key: 'actions', align: 'right', width: 90 })
   return cols
 })
@@ -407,6 +440,7 @@ function toggleSort(by) {
 /* -------------------- LOADERS -------------------- */
 async function loadSpaces() {
   try {
+    loading.table = true
     const res = await axiosClient.get('', {
       params: {
         c: 'Space',
@@ -426,13 +460,16 @@ async function loadSpaces() {
     pagination.current_page = data.current_page || 1
     pagination.per_page = data.per_page || 10
     pagination.total = data.total || rows.value.length
-    // chuẩn hóa field lead để render
+    // chuẩn hóa nhanh cho cột lead
     rows.value = rows.value.map(r => ({
       ...r,
       lead: r.lead_username || r.lead_email || '—'
     }))
   } catch (err) {
     message.error(apiError(err, 'Failed to load spaces'))
+  } finally {
+    // tạo độ “trễ” nhỏ để skeleton mượt hơn
+    setTimeout(() => { loading.table = false }, 200)
   }
 }
 
@@ -440,7 +477,7 @@ async function loadTypeOptions() {
   try {
     const res = await axiosClient.get('', { params: { c: 'Space', m: 'types' } })
     typeOptions.value = (res.data?.data || []).map(o => ({ label: o.label, value: o.value }))
-  } catch (err) {
+  } catch {
     typeOptions.value = []
   }
 }
@@ -448,7 +485,7 @@ async function loadLeadOptions() {
   try {
     const res = await axiosClient.get('', { params: { c: 'Space', m: 'leads' } })
     leadOptions.value = (res.data?.data || []).map(o => ({ label: o.label, value: o.value }))
-  } catch (err) {
+  } catch {
     leadOptions.value = []
   }
 }
@@ -456,7 +493,7 @@ async function loadStatusOptions() {
   try {
     const res = await axiosClient.get('', { params: { c: 'Space', m: 'statuses' } })
     statusOptions.value = (res.data?.data || []).map(o => ({ label: o.label, value: o.value }))
-  } catch (err) {
+  } catch {
     statusOptions.value = []
   }
 }
@@ -511,7 +548,7 @@ async function deleteOne(rec) {
   }
 }
 async function bulkDelete() {
-  const ids = rows.value.filter(r => selectedRowKeys.value.includes(r.uuid)).map(r => r.uuid)
+  const ids = selectedRowKeys.value
   if (!ids.length) return
   try {
     await Promise.all(ids.map(uuid =>
@@ -525,7 +562,7 @@ async function bulkDelete() {
   }
 }
 
-/* export */
+/* export (nếu cần bật) */
 function exportCSV() {
   const header = ['UUID','Name','Key','Type','Lead Username','Lead Email','Status','URL','Created','Updated']
   const data = rows.value.map(r => [
@@ -562,17 +599,13 @@ function openCreate() {
 }
 function closeCreate() { createOpen.value = false }
 
-function autoKeyFromName() {
-  const guess = keyFromName(createForm.name)
+watch(() => createForm.name, (val) => {
+  // tự gợi ý key từ name (có thể sửa)
+  const guess = keyFromName(val || '')
   if (!createForm.key || createForm.key === guess.slice(0, createForm.key.length)) {
     createForm.key = guess
   }
-}
-function watchInputs() {
-  // manual watchers (không dùng watch API để ngắn gọn)
-  const onName = (e) => { createForm.name = e?.target?.value ?? e; autoKeyFromName() }
-  return { onName }
-}
+})
 
 async function submitCreate() {
   if (!createForm.name.trim()) { message.error('Please enter Name'); return }
@@ -666,32 +699,57 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* ===== Page ===== */
 .page {
   padding: 20px;
-  background: #fff;
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
-  color: #222;
   height: 690px;
   overflow-y: auto;
+  background: linear-gradient(180deg, #fafbff 0%, #ffffff 60%);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans";
+  color: #1f2937;
 }
 
-.page-header {
+/* ===== Hero ===== */
+.hero {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 14px;
 }
-.title { font-size: 28px; font-weight: 700; }
-.right-actions > *:not(:last-child) { margin-right: 8px; }
+.title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+.subtitle {
+  color: #6b7280;
+  margin: 0;
+}
+.hero-actions > *:not(:last-child) { margin-right: 8px; }
 
+/* ===== Glass Panel ===== */
+.glass {
+  border-radius: 14px;
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(6px);
+  border: 1px solid #eef2ff;
+  box-shadow: 0 6px 24px rgba(99,102,241,0.08);
+}
+
+/* ===== Toolbar ===== */
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 12px;
   margin-bottom: 12px;
 }
-.spacer { flex: 1; }
-
+.toolbar-input { width: 280px; }
+.toolbar-select { width: 180px; }
+.toolbar-select.wide { width: 240px; }
+.divider { height: 20px; }
 .dropdown-pane {
   background: #fff;
   padding: 10px 12px;
@@ -700,22 +758,96 @@ onMounted(async () => {
   min-width: 200px;
 }
 .dropdown-pane .row { margin: 6px 0; }
+.spacer { flex: 1; }
 
-.spaces-table :deep(.ant-table-thead > tr > th) { background: #fafafa; }
+/* ===== Table Wrap ===== */
+.table-wrap {
+  position: relative;
+  padding: 8px;
+}
+
+/* Skeleton overlay */
+.skeleton-overlay {
+  position: absolute;
+  inset: 0;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.75));
+  backdrop-filter: blur(2px);
+  z-index: 2;
+  border-radius: 12px;
+}
+.skeleton-header {
+  height: 36px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: linear-gradient(90deg,#f3f4f6 25%,#eef2ff 37%,#f3f4f6 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+.skeleton-row {
+  height: 44px;
+  border-radius: 6px;
+  margin: 8px 0;
+  background: linear-gradient(90deg,#f3f4f6 25%,#eef2ff 37%,#f3f4f6 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+@keyframes shimmer { 0%{background-position: 200% 0} 100%{background-position: -200% 0} }
+.fade-enter-active,.fade-leave-active{ transition: opacity .18s ease; }
+.fade-enter-from,.fade-leave-to{ opacity: 0; }
+
+/* ===== Ant table polish ===== */
+.spaces-table :deep(.ant-table-thead > tr > th) {
+  background: #fafafa;
+  font-weight: 700;
+}
 .sortable { cursor: pointer; user-select: none; }
 .sort-icon { font-size: 12px; opacity: .65; }
 
-.cell-name { display: flex; align-items: center; gap: 8px; }
-.link-like { color: #1677ff; text-decoration: none; cursor: pointer; }
+/* ===== Cells ===== */
+.cell-name {
+  display: flex; align-items: center; gap: 10px;
+}
+.avatar {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: #eef2ff; color: #4f46e5;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; letter-spacing: -0.02em;
+}
+.name-meta .strong { font-weight: 700; }
+.link-like { color: #4f46e5; text-decoration: none; }
+.link-like:hover { text-decoration: underline; }
+.chips { display: flex; gap: 6px; margin-top: 2px; flex-wrap: wrap; }
+.chip {
+  display: inline-block; font-size: 12px; line-height: 18px; padding: 0 8px;
+  background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 999px; color: #374151;
+}
+.chip.neutral { background: #eef2ff; border-color: #e5e7eb; color: #4f46e5; }
 
 .lead { display: inline-flex; align-items: center; gap: 6px; }
 .lead-name { white-space: nowrap; }
 
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+.mono { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace; }
+.badge { background: #f9fafb; border: 1px solid #e5e7eb; padding: 2px 6px; border-radius: 6px; }
 .muted { color: #6b7280; }
 
-.pagination { display: flex; justify-content: center; margin-top: 12px; }
+/* Hover micro interaction */
+.hover-rise-inline { transition: transform .12s ease; }
+.hover-rise-inline:hover { transform: translateY(-1px); }
 
+/* Empty state */
+.empty-state {
+  padding: 20px;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* Forms */
 .row-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

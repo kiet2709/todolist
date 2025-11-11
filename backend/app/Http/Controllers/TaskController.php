@@ -11,27 +11,15 @@ use Carbon\Carbon;
 
 class TaskController extends Controller
 {
-    /**
-     * Tên bảng — chỉnh nếu bạn dùng tên khác
-     */
     protected string $table = 'tasks';
 
-    /**
-     * Các cột có thể tìm kiếm/điều kiện — controller sẽ tự kiểm tra cột tồn tại hay không.
-     */
     protected array $searchableLike = ['title', 'description', 'key'];
     protected array $filterableEq   = ['status', 'priority', 'space_id', 'task_type_id', 'assignee', 'owner', 'reporter'];
     protected array $sortable       = ['created_date', 'updated_date', 'due_date', 'priority', 'status', 'title', 'key'];
 
     /**
      * Danh sách + filter + sort + phân trang
-     * GET /tasks
-     * Query:
-     *  - q: tìm kiếm text
-     *  - status, priority, space_id, task_type_id, assignee, owner, reporter: filter chính xác
-     *  - sort: ví dụ "created_date" hoặc "-created_date" (desc)
-     *  - per_page: 1..100 (mặc định 15)
-     *  - with_trashed: 1 để hiện cả bản ghi đã xóa mềm (nếu có cột deleted_date)
+     * GỌI THEO DẠNG: /?c=Task&m=index&sort=-created_date&page=1&per_page=10
      */
     public function index(Request $request): JsonResponse
     {
@@ -39,35 +27,59 @@ class TaskController extends Controller
         $sortRaw = (string) $request->query('sort', '-created_date');
         [$sortCol, $sortDir] = $this->parseSort($sortRaw);
 
-        $query = DB::table($this->table);
+        // Base
+        $query = DB::table($this->table . ' as t');
 
-        // Ẩn bản ghi đã xóa mềm nếu có cột deleted_date
+        // Soft delete
         if (Schema::hasColumn($this->table, 'deleted_date') && !$request->boolean('with_trashed')) {
-            $query->whereNull('deleted_date');
+            $query->whereNull('t.deleted_date');
         }
 
-        // Tìm kiếm toàn văn đơn giản
+        // Search
         $q = trim((string) $request->query('q', ''));
         if ($q !== '') {
             $query->where(function ($sub) use ($q) {
                 foreach ($this->searchableLike as $col) {
                     if (Schema::hasColumn($this->table, $col)) {
-                        $sub->orWhere($col, 'like', '%' . $q . '%');
+                        $sub->orWhere('t.' . $col, 'like', '%' . $q . '%');
                     }
                 }
             });
         }
 
-        // Filter bằng so sánh bằng
+        // Filters
         foreach ($this->filterableEq as $col) {
             if (Schema::hasColumn($this->table, $col) && $request->filled($col)) {
-                $query->where($col, $request->query($col));
+                $query->where('t.' . $col, $request->query($col));
             }
         }
 
-        // Sắp xếp
+        // ====== JOIN users & spaces để trả về tên ======
+        // users: assignee/owner/reporter
+        $query
+            ->leftJoin('users as ua', 'ua.uuid', '=', 't.assignee')
+            ->leftJoin('users as uo', 'uo.uuid', '=', 't.owner')
+            ->leftJoin('users as ur', 'ur.uuid', '=', 't.reporter')
+            ->leftJoin('spaces as sp', 'sp.uuid', '=', 't.space_id');
+
+        // Select
+        $select = ['t.*'];
+        // usernames + emails
+        $select[] = DB::raw('ua.username as assignee_username');
+        $select[] = DB::raw('ua.email as assignee_email');
+        $select[] = DB::raw('uo.username as owner_username');
+        $select[] = DB::raw('uo.email as owner_email');
+        $select[] = DB::raw('ur.username as reporter_username');
+        $select[] = DB::raw('ur.email as reporter_email');
+        // space
+        $select[] = DB::raw('sp.name as space_name');
+        $select[] = DB::raw('sp.key as space_key');
+
+        $query->select($select);
+
+        // Sort
         if (in_array($sortCol, $this->sortable, true) && Schema::hasColumn($this->table, $sortCol)) {
-            $query->orderBy($sortCol, $sortDir);
+            $query->orderBy('t.' . $sortCol, $sortDir);
         }
 
         $paginator = $query->paginate($perPage)->appends($request->query());
@@ -77,26 +89,10 @@ class TaskController extends Controller
 
     /**
      * Tạo mới
-     * POST /tasks
-     * Body JSON ví dụ:
-     * {
-     *   "title": "Implement API",
-     *   "description": "Make it clean",
-     *   "status": "in_progress",
-     *   "priority": "high",
-     *   "space_id": "uuid-space",
-     *   "task_type_id": "uuid-type",
-     *   "assignee": "uuid-user",
-     *   "owner": "uuid-user",
-     *   "reporter": "uuid-user",
-     *   "due_date": "2025-12-31",
-     *   "parent_id": null,
-     *   "key": "TSK-1001"
-     * }
+     * POST /?c=Task&m=store
      */
     public function store(Request $request): JsonResponse
     {
-        // Validate nhẹ, không ép enum để phù hợp nhiều schema
         $data = $request->validate([
             'title'         => ['required', 'string', 'max:255'],
             'description'   => ['nullable', 'string'],
@@ -110,34 +106,22 @@ class TaskController extends Controller
             'parent_id'     => ['nullable', 'uuid', 'exists:'.$this->table.',uuid'],
             'task_type_id'  => ['nullable', 'uuid', 'exists:task_types,uuid'],
             'space_id'      => ['nullable', 'uuid', 'exists:spaces,uuid'],
-
-            // Nếu schema của bạn có các cột này:
             'created_by'    => ['nullable', 'uuid', 'exists:users,uuid'],
             'updated_by'    => ['nullable', 'uuid', 'exists:users,uuid'],
         ]);
 
         $now = Carbon::now();
 
-        // Tự tạo UUID nếu client không gửi
         $data['uuid'] = $data['uuid'] ?? (string) Str::uuid();
 
-        // Tự phát sinh key nếu cần
         if (!isset($data['key']) && Schema::hasColumn($this->table, 'key')) {
             $data['key'] = 'TSK-' . strtoupper(Str::random(6));
         }
 
-        // Gán timestamp nếu schema có
-        if (Schema::hasColumn($this->table, 'created_date')) {
-            $data['created_date'] = $now;
-        }
-        if (Schema::hasColumn($this->table, 'updated_date')) {
-            $data['updated_date'] = $now;
-        }
-        if (Schema::hasColumn($this->table, 'deleted_date')) {
-            $data['deleted_date'] = null;
-        }
+        if (Schema::hasColumn($this->table, 'created_date')) $data['created_date'] = $now;
+        if (Schema::hasColumn($this->table, 'updated_date')) $data['updated_date'] = $now;
+        if (Schema::hasColumn($this->table, 'deleted_date')) $data['deleted_date'] = null;
 
-        // Nếu có created_by / updated_by mà client không gửi, set = owner (nếu có)
         if (Schema::hasColumn($this->table, 'created_by') && !isset($data['created_by']) && isset($data['owner'])) {
             $data['created_by'] = $data['owner'];
         }
@@ -145,41 +129,39 @@ class TaskController extends Controller
             $data['updated_by'] = $data['owner'];
         }
 
-        // Chỉ giữ lại các cột thực sự tồn tại trong bảng
         $insert = $this->filterExistingColumns($data);
 
         DB::table($this->table)->insert($insert);
 
-        $task = $this->findByUuid($data['uuid'], withTrashed: true);
-
-        return response()->json($task, 201);
+        // Trả về kèm tên như index()
+        return $this->showWithJoin($request, $data['uuid']);
     }
 
     /**
      * Chi tiết
-     * GET /tasks/{uuid}
+     * GET /?c=Task&m=show&uuid={uuid}
+     * (trả về kèm users/spaces join)
      */
-    public function show(Request $request, string $uuid): JsonResponse
+    public function show(Request $request): JsonResponse
     {
-        $withTrashed = $request->boolean('with_trashed');
-        $task = $this->findByUuid($uuid, $withTrashed);
-
-        if (!$task) {
-            return response()->json(['message' => 'Task not found'], 404);
+        $uuid = $request->query('uuid', $request->route('uuid'));
+        if (!$uuid) {
+            return response()->json(['message' => 'uuid is required'], 422);
         }
-        return response()->json($task, 200);
+        return $this->showWithJoin($request, $uuid);
     }
 
     /**
      * Cập nhật
-     * PUT/PATCH /tasks/{uuid}
+     * PUT/PATCH /?c=Task&m=update&uuid={uuid}
      */
-    public function update(Request $request, string $uuid): JsonResponse
+    public function update(Request $request): JsonResponse
     {
+        $uuid = $request->query('uuid', $request->route('uuid'));
+        if (!$uuid) return response()->json(['message' => 'uuid is required'], 422);
+
         $task = $this->findByUuid($uuid, withTrashed: true);
-        if (!$task) {
-            return response()->json(['message' => 'Task not found'], 404);
-        }
+        if (!$task) return response()->json(['message' => 'Task not found'], 404);
 
         $data = $request->validate([
             'title'         => ['sometimes', 'string', 'max:255'],
@@ -194,11 +176,9 @@ class TaskController extends Controller
             'parent_id'     => ['sometimes', 'nullable', 'uuid', 'exists:'.$this->table.',uuid'],
             'task_type_id'  => ['sometimes', 'nullable', 'uuid', 'exists:task_types,uuid'],
             'space_id'      => ['sometimes', 'nullable', 'uuid', 'exists:spaces,uuid'],
-
             'updated_by'    => ['sometimes', 'nullable', 'uuid', 'exists:users,uuid'],
         ]);
 
-        // Không cho tự trỏ về chính nó
         if (isset($data['parent_id']) && $data['parent_id'] === $uuid) {
             return response()->json(['message' => 'parent_id cannot equal current task uuid'], 422);
         }
@@ -211,36 +191,30 @@ class TaskController extends Controller
 
         DB::table($this->table)->where('uuid', $uuid)->update($update);
 
-        $fresh = $this->findByUuid($uuid, withTrashed: true);
-
-        return response()->json($fresh, 200);
+        return $this->showWithJoin($request, $uuid);
     }
 
     /**
      * Xóa
-     * DELETE /tasks/{uuid}?force=1
-     * - Mặc định: soft delete (set deleted_date = now) nếu có cột deleted_date
-     * - Nếu ?force=1 hoặc không có cột deleted_date: xóa hẳn
+     * DELETE /?c=Task&m=destroy&uuid={uuid}&force=0|1
      */
-    public function destroy(Request $request, string $uuid): JsonResponse
+    public function destroy(Request $request): JsonResponse
     {
+        $uuid = $request->query('uuid', $request->route('uuid'));
+        if (!$uuid) return response()->json(['message' => 'uuid is required'], 422);
+
         $task = $this->findByUuid($uuid, withTrashed: true);
-        if (!$task) {
-            return response()->json(['message' => 'Task not found'], 404);
-        }
+        if (!$task) return response()->json(['message' => 'Task not found'], 404);
 
         $force = $request->boolean('force');
 
         if (Schema::hasColumn($this->table, 'deleted_date') && !$force) {
             $payload = ['deleted_date' => Carbon::now()];
             if (Schema::hasColumn($this->table, 'deleted_by') && $request->filled('deleted_by')) {
-                // Cho phép truyền deleted_by nếu schema có
                 $payload['deleted_by'] = $request->input('deleted_by');
             }
             DB::table($this->table)->where('uuid', $uuid)->update($payload);
-
-            $fresh = $this->findByUuid($uuid, withTrashed: true);
-            return response()->json($fresh, 200);
+            return $this->showWithJoin($request, $uuid, withTrashed: true);
         }
 
         DB::table($this->table)->where('uuid', $uuid)->delete();
@@ -249,33 +223,27 @@ class TaskController extends Controller
 
     /**
      * Khôi phục (soft-deleted)
-     * PATCH /tasks/{uuid}/restore
+     * PATCH /?c=Task&m=restore&uuid={uuid}
      */
-    public function restore(string $uuid): JsonResponse
+    public function restore(Request $request): JsonResponse
     {
         if (!Schema::hasColumn($this->table, 'deleted_date')) {
             return response()->json(['message' => 'Soft delete not supported for this table'], 400);
         }
 
+        $uuid = $request->query('uuid', $request->route('uuid'));
+        if (!$uuid) return response()->json(['message' => 'uuid is required'], 422);
+
         $task = $this->findByUuid($uuid, withTrashed: true);
-        if (!$task) {
-            return response()->json(['message' => 'Task not found'], 404);
-        }
+        if (!$task) return response()->json(['message' => 'Task not found'], 404);
 
         DB::table($this->table)->where('uuid', $uuid)->update(['deleted_date' => null]);
 
-        $fresh = $this->findByUuid($uuid, withTrashed: false);
-        return response()->json($fresh, 200);
+        return $this->showWithJoin($request, $uuid, withTrashed: false);
     }
 
-    /* =========================
-     * Helpers
-     * ========================= */
+    /* ========================= Helpers ========================= */
 
-    /**
-     * Tách và chuẩn hóa sort string
-     * "-created_date" => ['created_date', 'desc']
-     */
     protected function parseSort(string $input): array
     {
         $input = trim($input);
@@ -287,9 +255,6 @@ class TaskController extends Controller
         return [$input, $dir];
     }
 
-    /**
-     * Chỉ giữ lại các cột thực sự tồn tại trong bảng
-     */
     protected function filterExistingColumns(array $data): array
     {
         $out = [];
@@ -298,39 +263,64 @@ class TaskController extends Controller
                 $out[$col] = $val;
             }
         }
-        // Luôn giữ uuid nếu bảng có
         if (!isset($out['uuid']) && isset($data['uuid']) && Schema::hasColumn($this->table, 'uuid')) {
             $out['uuid'] = $data['uuid'];
         }
         return $out;
     }
 
-    /**
-     * Tìm theo UUID (mặc định không trả bản ghi đã xóa mềm)
-     */
     protected function findByUuid(string $uuid, bool $withTrashed = false): ?array
     {
         $query = DB::table($this->table)->where('uuid', $uuid);
-
         if (Schema::hasColumn($this->table, 'deleted_date') && !$withTrashed) {
             $query->whereNull('deleted_date');
         }
-
         $row = (array) $query->first();
         return $row ?: null;
     }
 
-    /* =========================
-     * Tùy chọn cho web forms (giữ cho đủ RESTful 7 actions)
-     * ========================= */
+    /**
+     * Lấy 1 task kèm join users/spaces (dùng cho show/store/update/destroy/restore)
+     */
+    protected function showWithJoin(Request $request, string $uuid, bool $withTrashed = true): JsonResponse
+    {
+        $q = DB::table($this->table.' as t')
+            ->leftJoin('users as ua', 'ua.uuid', '=', 't.assignee')
+            ->leftJoin('users as uo', 'uo.uuid', '=', 't.owner')
+            ->leftJoin('users as ur', 'ur.uuid', '=', 't.reporter')
+            ->leftJoin('spaces as sp', 'sp.uuid', '=', 't.space_id')
+            ->where('t.uuid', $uuid);
+
+        if (Schema::hasColumn($this->table, 'deleted_date') && !$withTrashed) {
+            $q->whereNull('t.deleted_date');
+        }
+
+        $row = $q->select([
+            't.*',
+            DB::raw('ua.username as assignee_username'),
+            DB::raw('ua.email as assignee_email'),
+            DB::raw('uo.username as owner_username'),
+            DB::raw('uo.email as owner_email'),
+            DB::raw('ur.username as reporter_username'),
+            DB::raw('ur.email as reporter_email'),
+            DB::raw('sp.name as space_name'),
+            DB::raw('sp.key as space_key'),
+        ])->first();
+
+        if (!$row) return response()->json(['message'=>'Task not found'], 404);
+        return response()->json((array) $row, 200);
+    }
+
+    /* ========================= Optional stubs for completeness ========================= */
 
     public function create(): JsonResponse
     {
-        return response()->json(['message' => 'Use POST /tasks to create a task (API controller sample).'], 200);
+        return response()->json(['message' => 'Use POST /?c=Task&m=store to create a task (API controller sample).'], 200);
     }
 
-    public function edit(string $uuid): JsonResponse
+    public function edit(Request $request): JsonResponse
     {
-        return response()->json(['message' => 'Use PUT/PATCH /tasks/{uuid} to update a task (API controller sample).'], 200);
+        $uuid = $request->query('uuid', $request->route('uuid'));
+        return response()->json(['message' => 'Use PUT/PATCH /?c=Task&m=update&uuid='.$uuid.' to update a task (API controller sample).'], 200);
     }
 }

@@ -13,7 +13,7 @@ use Throwable;
 class SpaceController extends Controller
 {
     /**
-     * GET /api/spaces
+     * GET /?c=Space&m=index
      * - Tìm kiếm q theo name/key/url
      * - Lọc theo type_id, lead_id, status
      * - Sắp xếp sort_by (whitelist) & sort_dir
@@ -30,6 +30,7 @@ class SpaceController extends Controller
             'sort_by'   => ['nullable', 'string', 'in:name,key,created_date,updated_date,status'],
             'sort_dir'  => ['nullable', 'string', 'in:asc,desc'],
             'per_page'  => ['nullable', 'integer', 'min:1', 'max:100'],
+            // 'page' Laravel tự đọc, không bắt buộc validate
         ]);
 
         $q        = $validated['q'] ?? null;
@@ -89,10 +90,15 @@ class SpaceController extends Controller
     }
 
     /**
-     * GET /api/spaces/{uuid}
+     * GET /?c=Space&m=show&uuid={uuid}
      */
-    public function show(string $uuid)
+    public function show(Request $request)
     {
+        $uuid = $request->query('uuid', $request->input('uuid'));
+        if (!$uuid) {
+            return response()->json(['message' => 'uuid is required'], 422);
+        }
+
         $space = DB::table('spaces as s')
             ->leftJoin('space_types as st', 'st.uuid', '=', 's.type_id')
             ->leftJoin('users as u', 'u.uuid', '=', 's.lead_id')
@@ -124,7 +130,7 @@ class SpaceController extends Controller
     }
 
     /**
-     * POST /api/spaces
+     * POST /?c=Space&m=store
      */
     public function store(Request $request)
     {
@@ -140,9 +146,8 @@ class SpaceController extends Controller
             ],
             'lead_id'  => [
                 'nullable', 'string', 'max:64',
-                Rule::exists('users', 'uuid')->where(function ($q) {
-                    $q->whereNull('deleted_date');
-                }),
+                // không ràng deleted_date vì nhiều bảng users không có cột này
+                Rule::exists('users', 'uuid'),
             ],
             'status'   => ['nullable', 'string', 'max:64'],
             'key'      => [
@@ -193,10 +198,15 @@ class SpaceController extends Controller
     }
 
     /**
-     * PUT/PATCH /api/spaces/{uuid}
+     * PUT/PATCH /?c=Space&m=update&uuid={uuid}
      */
-    public function update(Request $request, string $uuid)
+    public function update(Request $request)
     {
+        $uuid = $request->query('uuid', $request->input('uuid'));
+        if (!$uuid) {
+            return response()->json(['message' => 'uuid is required'], 422);
+        }
+
         // Kiểm tra tồn tại + chưa bị xóa mềm
         $exists = DB::table('spaces')->where('uuid', $uuid)->whereNull('deleted_date')->exists();
         if (!$exists) {
@@ -214,9 +224,7 @@ class SpaceController extends Controller
             ],
             'lead_id'  => [
                 'sometimes', 'nullable', 'string', 'max:64',
-                Rule::exists('users', 'uuid')->where(function ($q) {
-                    $q->whereNull('deleted_date');
-                }),
+                Rule::exists('users', 'uuid'),
             ],
             'status'   => ['sometimes', 'nullable', 'string', 'max:64'],
             'key'      => [
@@ -261,11 +269,16 @@ class SpaceController extends Controller
     }
 
     /**
-     * DELETE /api/spaces/{uuid}
+     * DELETE /?c=Space&m=destroy&uuid={uuid}
      * - Soft delete bằng cách set deleted_date & deleted_by
      */
-    public function destroy(Request $request, string $uuid)
+    public function destroy(Request $request)
     {
+        $uuid = $request->query('uuid', $request->input('uuid'));
+        if (!$uuid) {
+            return response()->json(['message' => 'uuid is required'], 422);
+        }
+
         $exists = DB::table('spaces')->where('uuid', $uuid)->whereNull('deleted_date')->exists();
         if (!$exists) {
             return response()->json(['message' => 'Space not found'], 404);
@@ -295,11 +308,16 @@ class SpaceController extends Controller
     }
 
     /**
-     * (Tùy chọn) POST /api/spaces/{uuid}/restore
+     * POST /?c=Space&m=restore&uuid={uuid}
      * - Phục hồi soft delete (nếu cần)
      */
-    public function restore(string $uuid)
+    public function restore(Request $request)
     {
+        $uuid = $request->query('uuid', $request->input('uuid'));
+        if (!$uuid) {
+            return response()->json(['message' => 'uuid is required'], 422);
+        }
+
         $exists = DB::table('spaces')->where('uuid', $uuid)->whereNotNull('deleted_date')->exists();
         if (!$exists) {
             return response()->json(['message' => 'Space not found or not deleted'], 404);
@@ -329,7 +347,7 @@ class SpaceController extends Controller
         }
     }
 
-        /**
+    /**
      * GET /?c=Space&m=types
      * Trả về options cho select type_id
      */
