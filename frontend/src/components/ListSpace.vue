@@ -3,7 +3,6 @@
     <div class="page-header">
       <h1 class="title">Spaces</h1>
       <div class="right-actions">
-        <!-- <a-button type="default">Templates</a-button> -->
         <a-button type="primary" @click="openCreate">Create space</a-button>
       </div>
     </div>
@@ -11,11 +10,12 @@
     <!-- Toolbar -->
     <div class="toolbar">
       <a-input
-        v-model:value="q"
+        v-model:value="state.q"
         allow-clear
-        placeholder="Search spaces"
-        style="width: 260px"
-        @change="goFirstPage"
+        placeholder="Search spaces (name, key, url)"
+        style="width: 280px"
+        @change="goFirstPageAndLoad"
+        @pressEnter="goFirstPageAndLoad"
       >
         <template #prefix>
           <svg width="16" height="16" viewBox="0 0 24 24">
@@ -24,35 +24,35 @@
         </template>
       </a-input>
 
-      <!-- (để nguyên comment filter Type theo yêu cầu của bạn) -->
       <a-select
-        v-model:value="filters.type"
+        v-model:value="state.filters.type_id"
         :options="typeOptions"
         allow-clear
         placeholder="Filter by type"
-        style="width: 180px"
-        @change="goFirstPage"
+        style="width: 200px"
+        @change="goFirstPageAndLoad"
       />
 
       <a-select
-        v-model:value="filters.lead"
+        v-model:value="state.filters.lead_id"
         :options="leadOptions"
+        show-search
         allow-clear
         placeholder="Lead"
-        style="width: 160px"
-        @change="goFirstPage"
+        style="width: 240px"
+        option-filter-prop="label"
+        @change="goFirstPageAndLoad"
       />
+
       <a-select
-        v-model:value="filters.status"
+        v-model:value="state.filters.status"
         :options="statusOptions"
         allow-clear
         placeholder="Status"
-        style="width: 140px"
-        @change="goFirstPage"
+        style="width: 160px"
+        @change="goFirstPageAndLoad"
       />
 
-      <a-divider type="vertical" />
-      <a-checkbox v-model:checked="onlyStarred" @change="goFirstPage">Starred</a-checkbox>
       <a-divider type="vertical" />
 
       <a-dropdown trigger="click">
@@ -68,62 +68,41 @@
         </template>
       </a-dropdown>
 
-      <!-- (để nguyên comment Density theo yêu cầu của bạn) -->
-      <!-- <a-dropdown trigger="click">
-        <a-button>Density</a-button>
-        <template #overlay>
-          <div class="dropdown-pane">
-            <a-radio-group v-model:value="density">
-              <div class="row"><a-radio value="middle">Default</a-radio></div>
-              <div class="row"><a-radio value="large">Comfortable</a-radio></div>
-              <div class="row"><a-radio value="small">Compact</a-radio></div>
-            </a-radio-group>
-          </div>
-        </template>
-      </a-dropdown> -->
-
       <a-button @click="exportCSV">Export CSV</a-button>
 
       <div class="spacer"></div>
 
       <template v-if="selectedRowKeys.length">
-        <a-button @click="bulkArchive(true)">Archive ({{ selectedRowKeys.length }})</a-button>
-        <a-button @click="bulkArchive(false)">Unarchive</a-button>
         <a-popconfirm title="Delete selected?" ok-text="Delete" cancel-text="Cancel" @confirm="bulkDelete">
-          <a-button danger>Delete</a-button>
+          <a-button danger>Delete ({{ selectedRowKeys.length }})</a-button>
         </a-popconfirm>
       </template>
     </div>
 
     <!-- Table -->
     <a-table
-      :data-source="pagedData"
+      :data-source="rows"
       :columns="tableColumns"
-      :row-key="row => row.id"
+      :row-key="row => row.uuid"
       :pagination="false"
       :size="density"
       :row-selection="rowSelection"
-      :customRow="customRow"
       class="spaces-table"
       bordered
     >
       <template #bodyCell="{ column, record, text }">
-        <!-- Star -->
-        <template v-if="column.key === 'star'">
-          <a-tooltip :title="record.star ? 'Unstar' : 'Star'">
-            <button class="star-btn" @click.stop="toggleStar(record)">
-              <svg width="18" height="18" viewBox="0 0 24 24" :fill="record.star ? '#f59e0b' : 'none'" stroke="#f59e0b" stroke-width="1.7">
-                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"/>
-              </svg>
-            </button>
-          </a-tooltip>
-        </template>
-
-        <!-- Name + icon -->
-        <template v-else-if="column.key === 'name'">
+        <!-- Name (clickable if URL) -->
+        <template v-if="column.key === 'name'">
           <div class="cell-name">
-            <span class="space-icon" v-html="record.iconSvg"></span>
-            <a class="link-like" @click.prevent="openSpace(record)">{{ record.name }}</a>
+            <a
+              v-if="record.url"
+              class="link-like"
+              :href="record.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click.stop
+            >{{ record.name }}</a>
+            <span v-else>{{ record.name }}</span>
           </div>
         </template>
 
@@ -133,43 +112,41 @@
         </template>
 
         <!-- Type -->
-        <template v-else-if="column.key === 'type'">
-          <a-tag :color="typeColorMap[record.type] || 'default'">{{ record.type }}</a-tag>
+        <template v-else-if="column.key === 'type_name'">
+          <a-tag>{{ record.type_name || '—' }}</a-tag>
         </template>
 
         <!-- Lead -->
         <template v-else-if="column.key === 'lead'">
           <div class="lead">
-            <a-avatar size="small" style="background:#5b67f1">{{ record.leadInitials }}</a-avatar>
-            <span class="lead-name">{{ record.lead }}</span>
+            <a-avatar size="small">{{ initialsFrom(record.lead_username || record.lead_email) }}</a-avatar>
+            <span class="lead-name">
+              <a-tooltip :title="record.lead_email">{{ record.lead_username || '—' }}</a-tooltip>
+            </span>
           </div>
         </template>
 
         <!-- Status -->
         <template v-else-if="column.key === 'status'">
-          <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+          <a-tag :color="statusColor(record.status)">{{ record.status || '—' }}</a-tag>
         </template>
 
         <!-- Updated -->
-        <template v-else-if="column.key === 'updatedAt'">
-          <span class="muted">{{ formatDate(record.updatedAt) }}</span>
+        <template v-else-if="column.key === 'updated_date'">
+          <span class="muted">{{ formatDate(record.updated_date) }}</span>
         </template>
 
-        <!-- URL menu -->
-        <template v-else-if="column.key === 'url'">
+        <!-- Actions -->
+        <template v-else-if="column.key === 'actions'">
           <a-dropdown :trigger="['click']">
-            <a-button shape="circle">⋯</a-button>
+            <a-button size="small">⋯</a-button>
             <template #overlay>
               <a-menu>
-                <a-menu-item @click="openSpace(record)">Open</a-menu-item>
-                <a-menu-item @click="copyUrl(record)">Copy URL</a-menu-item>
-                <a-menu-item @click="renameSpace(record)">Rename</a-menu-item>
-                <a-menu-item @click="duplicateSpace(record)">Duplicate</a-menu-item>
+                <a-menu-item @click="record.url ? openUrl(record.url) : null" :disabled="!record.url">Open</a-menu-item>
+                <a-menu-item @click="copy(record.url)" :disabled="!record.url">Copy URL</a-menu-item>
                 <a-menu-divider />
-                <a-menu-item @click="toggleArchive(record)">
-                  {{ record.archived ? 'Unarchive' : 'Archive' }}
-                </a-menu-item>
-                <a-menu-item danger @click="deleteSpace(record)">Delete</a-menu-item>
+                <a-menu-item @click="openEdit(record)">Edit</a-menu-item>
+                <a-menu-item danger @click="deleteOne(record)">Delete</a-menu-item>
               </a-menu>
             </template>
           </a-dropdown>
@@ -184,13 +161,13 @@
     <!-- Pagination -->
     <div class="pagination">
       <a-pagination
-        :current="page"
-        :page-size="pageSize"
-        :total="filteredSorted.length"
+        :current="pagination.current_page"
+        :page-size="pagination.per_page"
+        :total="pagination.total"
         show-size-changer
-        :page-size-options="['5','10','20','50']"
-        @change="(p, ps) => { page = p; pageSize = ps }"
-        @showSizeChange="(p, ps) => { page = 1; pageSize = ps }"
+        :page-size-options="['5','10','20','50','100']"
+        @change="(p, ps) => { pagination.current_page = p; pagination.per_page = ps; loadSpaces() }"
+        @showSizeChange="(p, ps) => { pagination.current_page = 1; pagination.per_page = ps; loadSpaces() }"
       />
     </div>
 
@@ -213,37 +190,100 @@
           <a-form-item label="Key" :required="true">
             <a-input v-model:value="createForm.key" placeholder="e.g. SUP" />
           </a-form-item>
-          <a-form-item label="Type" :required="true">
+          <a-form-item label="Type">
             <a-select
-              v-model:value="createForm.type"
+              v-model:value="createForm.type_id"
               :options="typeOptions"
               placeholder="Select type"
+              allow-clear
             />
           </a-form-item>
         </div>
 
         <a-form-item label="Lead">
-          <a-input v-model:value="createForm.lead" placeholder="Person in charge" />
+          <a-select
+            v-model:value="createForm.lead_id"
+            :options="leadOptions"
+            show-search
+            allow-clear
+            placeholder="Person in charge"
+            option-filter-prop="label"
+          />
         </a-form-item>
 
-        <div class="row-3">
-          <a-form-item label="Starred">
-            <a-switch v-model:checked="createForm.star" />
+        <div class="row-2">
+          <a-form-item label="Status">
+            <a-select
+              v-model:value="createForm.status"
+              :options="statusOptions"
+              allow-clear
+              placeholder="Status"
+            />
           </a-form-item>
-          <a-form-item label="Archived">
-            <a-switch v-model:checked="createForm.archived" />
-          </a-form-item>
-          <a-form-item label="Auto URL from Key">
-            <a-switch v-model:checked="autoUrl" />
+          <a-form-item label="URL">
+            <a-input v-model:value="createForm.url" placeholder="https://example.com/space" />
           </a-form-item>
         </div>
 
-        <a-form-item label="URL">
-          <a-input v-model:value="createForm.url" placeholder="https://example.com/your-space" />
+        <a-alert type="info" show-icon message="Tip"
+                 description="Key sẽ tự gợi ý từ Name (có thể sửa)."
+                 style="margin-top: 6px;" />
+      </a-form>
+    </a-modal>
+
+    <!-- ===== Edit Space Modal ===== -->
+    <a-modal
+      v-model:open="editOpen"
+      title="Edit space"
+      :confirm-loading="editLoading"
+      @ok="submitEdit"
+      @cancel="closeEdit"
+      :width="560"
+      destroyOnClose
+    >
+      <a-form layout="vertical">
+        <a-form-item label="Name" :required="true">
+          <a-input v-model:value="editForm.name" />
         </a-form-item>
 
-        <a-alert type="info" show-icon message="Tip"
-                 description="Key sẽ tự gợi ý từ Name (có thể sửa). URL được tạo từ Key nếu bật Auto URL."
+        <div class="row-2">
+          <a-form-item label="Key" :required="true">
+            <a-input v-model:value="editForm.key" />
+          </a-form-item>
+          <a-form-item label="Type">
+            <a-select
+              v-model:value="editForm.type_id"
+              :options="typeOptions"
+              allow-clear
+            />
+          </a-form-item>
+        </div>
+
+        <a-form-item label="Lead">
+          <a-select
+            v-model:value="editForm.lead_id"
+            :options="leadOptions"
+            show-search
+            allow-clear
+            option-filter-prop="label"
+          />
+        </a-form-item>
+
+        <div class="row-2">
+          <a-form-item label="Status">
+            <a-select
+              v-model:value="editForm.status"
+              :options="statusOptions"
+              allow-clear
+            />
+          </a-form-item>
+          <a-form-item label="URL">
+            <a-input v-model:value="editForm.url" />
+          </a-form-item>
+        </div>
+
+        <a-alert type="info" show-icon message="Note"
+                 description="Chỉ các trường của API được hiển thị/cập nhật."
                  style="margin-top: 6px;" />
       </a-form>
     </a-modal>
@@ -251,7 +291,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, h, watch } from 'vue'
+import { ref, reactive, computed, h, onMounted } from 'vue'
 import {
   Input as AInput,
   Select as ASelect,
@@ -263,250 +303,236 @@ import {
   Menu as AMenu,
   Divider as ADivider,
   Checkbox as ACheckbox,
-  Radio as ARadio,
   Pagination as APagination,
   Tooltip as ATooltip,
   Popconfirm as APopconfirm,
   Modal as AModal,
   Form as AForm,
-  Switch as ASwitch,
   Alert as AAlert,
   message
 } from 'ant-design-vue'
 import 'ant-design-vue/dist/reset.css'
+import axiosClient from '@/utils/axiosClient'
 
-/* -------------------- ICON FACTORY -------------------- */
-const makeIcon = (stroke, fill) => `
-<svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-  <rect x="3" y="3" width="18" height="18" rx="3" stroke="${stroke}" stroke-width="1.5" fill="${fill}"/>
-  <path d="M8 9h8M8 13h6" stroke="${stroke}" stroke-width="1.5" stroke-linecap="round"/>
-</svg>`
+/* -------------------- STATE -------------------- */
+const state = reactive({
+  q: '',
+  filters: {
+    type_id: null,
+    lead_id: null,
+    status: null
+  },
+  sort_by: 'created_date',
+  sort_dir: 'desc'
+})
 
-const iconColorByType = (type) => {
-  if (type === 'Service management') return { stroke: '#7B6A2B', fill: '#FFF6D6' }
-  return { stroke: '#2B6A9B', fill: '#E9F6FF' } // Team-managed software
-}
-
-/* -------------------- MOCK DATA -------------------- */
-const spacesRaw = ref([
-  { id: 1,  star: true,  name: 'Support',            key: 'SUP', type: 'Service management', lead: 'Tuấn Kiệt Lê Nguyễn', leadInitials: 'TN', iconSvg: makeIcon('#7B6A2B','#FFF6D6'), status: 'Active',   url: 'https://example.com/sup', updatedAt: '2025-09-20', archived: false },
-  { id: 2,  star: false, name: 'To Do List System',  key: 'KAN', type: 'Team-managed software', lead: 'Tuấn Kiệt Lê Nguyễn', leadInitials: 'TN', iconSvg: makeIcon('#2B6A9B','#E9F6FF'), status: 'Active', url: 'https://example.com/kan', updatedAt: '2025-09-18', archived: false },
-  { id: 3,  star: false, name: 'Marketing Ops',     key: 'MKT', type: 'Service management', lead: 'Mai Trần', leadInitials: 'MT', iconSvg: makeIcon('#B91C1C','#FFECEC'), status: 'Active', url: 'https://example.com/mkt', updatedAt: '2025-08-11', archived: false },
-  { id: 4,  star: true,  name: 'Finance Hub',       key: 'FIN', type: 'Team-managed software', lead: 'Lâm Phạm', leadInitials: 'LP', iconSvg: makeIcon('#6B21A8','#F5F3FF'), status: 'Active', url: 'https://example.com/fin', updatedAt: '2025-08-03', archived: false },
-  { id: 5,  star: false, name: 'HR Portal',         key: 'HR',  type: 'Service management', lead: 'An Nguyễn', leadInitials: 'AN', iconSvg: makeIcon('#166534','#ECFDF5'), status: 'Active', url: 'https://example.com/hr', updatedAt: '2025-07-25', archived: false },
-  { id: 6,  star: false, name: 'Design Board',      key: 'DSN', type: 'Team-managed software', lead: 'Yến Hà', leadInitials: 'YH', iconSvg: makeIcon('#D97706','#FEF3C7'), status: 'Active', url: 'https://example.com/dsn', updatedAt: '2025-07-12', archived: false },
-  { id: 7,  star: false, name: 'IT Operations',     key: 'OPS', type: 'Service management', lead: 'Hải Đỗ', leadInitials: 'HĐ', iconSvg: makeIcon('#1E40AF','#E0F2FE'), status: 'Active', url: 'https://example.com/ops', updatedAt: '2025-07-07', archived: false },
-  { id: 8,  star: false, name: 'Data Platform',     key: 'DPL', type: 'Team-managed software', lead: 'Trang Võ', leadInitials: 'TV', iconSvg: makeIcon('#2B6A9B','#E9F6FF'), status: 'Active', url: 'https://example.com/dpl', updatedAt: '2025-06-28', archived: false },
-  { id: 9,  star: false, name: 'Customer Success',  key: 'CS',  type: 'Service management', lead: 'Long Phạm', leadInitials: 'LP', iconSvg: makeIcon('#7B6A2B','#FFF6D6'), status: 'Archived', url: 'https://example.com/cs', updatedAt: '2025-05-16', archived: true },
-  { id:10,  star: false, name: 'QA Lab',            key: 'QAL', type: 'Team-managed software', lead: 'Huệ Đặng', leadInitials: 'HĐ', iconSvg: makeIcon('#6B21A8','#F5F3FF'), status: 'Active', url: 'https://example.com/qal', updatedAt: '2025-04-03', archived: false },
-  { id:11,  star: false, name: 'Growth Sandbox',    key: 'GRW', type: 'Team-managed software', lead: 'Hùng Lê', leadInitials: 'HL', iconSvg: makeIcon('#D97706','#FEF3C7'), status: 'Active', url: 'https://example.com/grw', updatedAt: '2025-01-10', archived: false },
-  { id:12,  star: false, name: 'Partner Portal',    key: 'PRT', type: 'Service management', lead: 'Quỳnh Anh', leadInitials: 'QA', iconSvg: makeIcon('#166534','#ECFDF5'), status: 'Active', url: 'https://example.com/prt', updatedAt: '2024-12-01', archived: false }
-])
-
-/* -------------------- FILTERS / STATE -------------------- */
-const q = ref('')
-const filters = ref({ type: null, lead: null, status: null })
-const onlyStarred = ref(false)
-
-const typeOptions = [
-  { label: 'Service management', value: 'Service management' },
-  { label: 'Team-managed software', value: 'Team-managed software' }
-]
-const leadOptions = computed(() =>
-  Array.from(new Set(spacesRaw.value.map(s => s.lead))).map(v => ({ label: v, value: v }))
-)
-const statusOptions = [
-  { label: 'Active', value: 'Active' },
-  { label: 'Archived', value: 'Archived' }
-]
-
-const typeColorMap = {
-  'Service management': 'gold',
-  'Team-managed software': 'blue'
-}
-const statusColor = s => (s === 'Active' ? 'green' : 'default')
-
-/* -------------------- COLUMNS -------------------- */
-const columnLabels = {
-  star: '',
-  name: 'Name',
-  key: 'Key',
-  type: 'Type',
-  lead: 'Lead',
-  status: 'Status',
-  updatedAt: 'Updated',
-  url: 'Space URL'
-}
-const allColumnKeys = ['star', 'name', 'key', 'type', 'lead', 'status', 'updatedAt', 'url']
-const visibleColsSet = ref(new Set(allColumnKeys))
-const toggleColumn = (key) => {
-  const set = new Set(visibleColsSet.value)
-  if (set.has(key)) set.delete(key)
-  else set.add(key)
-  if (![...set].some(k => ['name','key','type','lead','status','updatedAt'].includes(k))) return
-  visibleColsSet.value = set
-}
-
-/* sorting */
-const sortState = ref({ key: 'name', order: 'asc' })
-const onHeaderSort = (key) => {
-  if (sortState.value.key === key) {
-    sortState.value.order = sortState.value.order === 'asc' ? 'desc' : 'asc'
-  } else {
-    sortState.value = { key, order: 'asc' }
-  }
-}
-
-/* density (giữ nguyên binding size) */
 const density = ref('middle')
 
-/* selection (reactive) */
+const rows = ref([]) // dữ liệu spaces từ server
+const pagination = reactive({
+  current_page: 1,
+  per_page: 10,
+  total: 0
+})
+
+/* options cho filter/select */
+const typeOptions = ref([])
+const leadOptions = ref([])
+const statusOptions = ref([])
+
+/* selection */
 const selectedRowKeys = ref([])
 const rowSelection = computed(() => ({
   selectedRowKeys: selectedRowKeys.value,
   onChange: (keys) => { selectedRowKeys.value = keys }
 }))
-const customRow = (record) => ({
-  onClick: () => {
-    const idx = selectedRowKeys.value.indexOf(record.id)
-    if (idx >= 0) selectedRowKeys.value.splice(idx, 1)
-    else selectedRowKeys.value.push(record.id)
-  }
-})
 
-/* -------------------- DERIVED DATA -------------------- */
-const filteredSorted = computed(() => {
-  let arr = spacesRaw.value.slice()
+/* -------------------- COLUMNS -------------------- */
+const columnLabels = {
+  name: 'Name',
+  key: 'Key',
+  type_name: 'Type',
+  lead: 'Lead',
+  status: 'Status',
+  updated_date: 'Updated',
+  actions: ''
+}
+const allColumnKeys = ['name','key','type_name','lead','status','updated_date','actions']
+const visibleColsSet = ref(new Set(allColumnKeys))
+const toggleColumn = (key) => {
+  const set = new Set(visibleColsSet.value)
+  if (set.has(key)) set.delete(key); else set.add(key)
+  // đảm bảo tối thiểu vẫn còn các cột chính
+  if (![...set].some(k => ['name','key','status'].includes(k))) return
+  visibleColsSet.value = set
+}
 
-  if (q.value.trim()) {
-    const s = q.value.trim().toLowerCase()
-    arr = arr.filter(x =>
-      x.name.toLowerCase().includes(s) ||
-      String(x.key).toLowerCase().includes(s)
-    )
-  }
-  if (filters.value.type)   arr = arr.filter(x => x.type === filters.value.type)
-  if (filters.value.lead)   arr = arr.filter(x => x.lead === filters.value.lead)
-  if (filters.value.status) arr = arr.filter(x => (filters.value.status === 'Archived') ? x.archived : !x.archived)
-  if (onlyStarred.value) arr = arr.filter(x => x.star)
-
-  const { key, order } = sortState.value
-  arr.sort((a,b) => {
-    const va = a[key]
-    const vb = b[key]
-    let cmp = 0
-    if (key === 'updatedAt') {
-      cmp = new Date(a.updatedAt) - new Date(b.updatedAt)
-    } else {
-      cmp = String(va).localeCompare(String(vb), 'en', { numeric:true, sensitivity:'base' })
-    }
-    return order === 'asc' ? cmp : -cmp
-  })
-  return arr
-})
-
-/* pagination */
-const page = ref(1)
-const pageSize = ref(10)
-const goFirstPage = () => { page.value = 1 }
-const pagedData = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredSorted.value.slice(start, start + pageSize.value)
-})
-
-/* columns for a-table */
 const tableColumns = computed(() => {
   const cols = []
-  if (visibleColsSet.value.has('star')) cols.push({ title: '', dataIndex: 'star', key: 'star', width: 46 })
-  if (visibleColsSet.value.has('name')) cols.push(sortableHeader('Name', 'name'))
-  if (visibleColsSet.value.has('key'))  cols.push(sortableHeader('Key', 'key', 110))
-  if (visibleColsSet.value.has('type')) cols.push(sortableHeader('Type', 'type', 200))
-  if (visibleColsSet.value.has('lead')) cols.push(sortableHeader('Lead', 'lead', 220))
-  if (visibleColsSet.value.has('status')) cols.push(sortableHeader('Status', 'status', 120))
-  if (visibleColsSet.value.has('updatedAt')) cols.push(sortableHeader('Updated', 'updatedAt', 140))
-  if (visibleColsSet.value.has('url'))  cols.push({ title: 'Space URL', key: 'url', align: 'right', width: 80 })
+  if (visibleColsSet.value.has('name')) cols.push(sortableHeader('Name', 'name', 260))
+  if (visibleColsSet.value.has('key'))  cols.push(sortableHeader('Key', 'key', 120))
+  if (visibleColsSet.value.has('type_name')) cols.push({ title: 'Type', dataIndex: 'type_name', key: 'type_name', width: 180 })
+  if (visibleColsSet.value.has('lead')) cols.push({ title: 'Lead', dataIndex: 'lead', key: 'lead', width: 240 })
+  if (visibleColsSet.value.has('status')) cols.push(sortableHeader('Status', 'status', 140))
+  if (visibleColsSet.value.has('updated_date')) cols.push(sortableHeader('Updated', 'updated_date', 160))
+  if (visibleColsSet.value.has('actions')) cols.push({ title: '', key: 'actions', align: 'right', width: 90 })
   return cols
 })
 
 function sortableHeader(titleText, key, width) {
-  const active = sortState.value.key === key
-  const dir = sortState.value.order
-  const icon = active ? (dir === 'asc' ? '↑' : '↓') : '↕'
+  const active = state.sort_by === key
+  const icon = active ? (state.sort_dir === 'asc' ? '↑' : '↓') : '↕'
+  const sortableWhitelist = ['name','key','status','created_date','updated_date']
+  const isAllowed = sortableWhitelist.includes(key)
   return {
-    title: () => h('span', { class: 'sortable', onClick: () => onHeaderSort(key) }, [
-      titleText, ' ', h('span', { class: 'sort-icon' }, icon)
-    ]),
+    title: () => h('span', {
+      class: isAllowed ? 'sortable' : '',
+      onClick: isAllowed ? () => toggleSort(key) : null
+    }, [titleText, ' ', h('span', { class: 'sort-icon' }, icon)]),
     dataIndex: key,
     key,
     width
   }
 }
+function toggleSort(by) {
+  if (state.sort_by === by) {
+    state.sort_dir = (state.sort_dir === 'asc') ? 'desc' : 'asc'
+  } else {
+    state.sort_by = by
+    state.sort_dir = 'asc'
+  }
+  goFirstPageAndLoad()
+}
 
-/* -------------------- ACTIONS (table) -------------------- */
-function openSpace(row) {
-  window.open(row.url, '_blank')
-}
-function copyUrl(row) {
-  navigator.clipboard.writeText(row.url)
-  message.success('Copied URL')
-}
-function renameSpace(row) {
-  const name = window.prompt('New name', row.name)
-  if (name && name.trim()) {
-    row.name = name.trim()
-    message.success('Renamed')
+/* -------------------- LOADERS -------------------- */
+async function loadSpaces() {
+  try {
+    const res = await axiosClient.get('', {
+      params: {
+        c: 'Space',
+        m: 'index',
+        q: state.q || undefined,
+        type_id: state.filters.type_id || undefined,
+        lead_id: state.filters.lead_id || undefined,
+        status: state.filters.status || undefined,
+        sort_by: state.sort_by,
+        sort_dir: state.sort_dir,
+        page: pagination.current_page,
+        per_page: pagination.per_page
+      }
+    })
+    const data = res.data || {}
+    rows.value = Array.isArray(data.data) ? data.data : []
+    pagination.current_page = data.current_page || 1
+    pagination.per_page = data.per_page || 10
+    pagination.total = data.total || rows.value.length
+    // chuẩn hóa field lead để render
+    rows.value = rows.value.map(r => ({
+      ...r,
+      lead: r.lead_username || r.lead_email || '—'
+    }))
+  } catch (err) {
+    message.error(apiError(err, 'Failed to load spaces'))
   }
 }
-function duplicateSpace(row) {
-  const id = Math.max(...spacesRaw.value.map(x => x.id)) + 1
-  const clone = { ...row, id, star: false, key: uniqueKey(row.key), name: row.name + ' (Copy)', updatedAt: today() }
-  spacesRaw.value.unshift(clone)
-  message.success('Duplicated')
+
+async function loadTypeOptions() {
+  try {
+    const res = await axiosClient.get('', { params: { c: 'Space', m: 'types' } })
+    typeOptions.value = (res.data?.data || []).map(o => ({ label: o.label, value: o.value }))
+  } catch (err) {
+    typeOptions.value = []
+  }
 }
-function uniqueKey(base) {
-  let k = base
-  let i = 1
-  const set = new Set(spacesRaw.value.map(s => s.key))
-  while (set.has(k)) { k = `${base}${i}`; i++ }
-  return k
+async function loadLeadOptions() {
+  try {
+    const res = await axiosClient.get('', { params: { c: 'Space', m: 'leads' } })
+    leadOptions.value = (res.data?.data || []).map(o => ({ label: o.label, value: o.value }))
+  } catch (err) {
+    leadOptions.value = []
+  }
 }
-function toggleArchive(row) {
-  row.archived = !row.archived
-  row.status = row.archived ? 'Archived' : 'Active'
-  row.updatedAt = today()
-}
-function deleteSpace(row) {
-  spacesRaw.value = spacesRaw.value.filter(s => s.id !== row.id)
-  selectedRowKeys.value = selectedRowKeys.value.filter(id => id !== row.id)
-  message.success('Deleted')
-}
-function toggleStar(row) {
-  row.star = !row.star
+async function loadStatusOptions() {
+  try {
+    const res = await axiosClient.get('', { params: { c: 'Space', m: 'statuses' } })
+    statusOptions.value = (res.data?.data || []).map(o => ({ label: o.label, value: o.value }))
+  } catch (err) {
+    statusOptions.value = []
+  }
 }
 
-/* bulk */
-function bulkArchive(archive) {
-  spacesRaw.value.forEach(s => {
-    if (selectedRowKeys.value.includes(s.id)) {
-      s.archived = archive
-      s.status = archive ? 'Archived' : 'Active'
-      s.updatedAt = today()
-    }
-  })
-  message.success(archive ? 'Archived selected' : 'Unarchived selected')
+function goFirstPageAndLoad() {
+  pagination.current_page = 1
+  loadSpaces()
 }
-function bulkDelete() {
-  spacesRaw.value = spacesRaw.value.filter(s => !selectedRowKeys.value.includes(s.id))
-  selectedRowKeys.value = []
-  message.success('Deleted selected')
+
+/* -------------------- ACTIONS -------------------- */
+function openUrl(url) {
+  window.open(url, '_blank')
+}
+function copy(text) {
+  if (!text) return
+  navigator.clipboard.writeText(text)
+  message.success('Copied')
+}
+function formatDate(d) {
+  if (!d) return '—'
+  try { return new Date(d).toLocaleString() } catch { return d }
+}
+function statusColor(s) {
+  if (!s) return 'default'
+  const v = String(s).toLowerCase()
+  if (['active','open','enabled'].includes(v)) return 'green'
+  if (['archived','disabled','closed'].includes(v)) return 'default'
+  if (['pending','draft'].includes(v)) return 'gold'
+  return 'blue'
+}
+function initialsFrom(s) {
+  if (!s) return ''
+  const parts = String(s).trim().split(/\s+/)
+  if (parts.length === 1) return parts[0].slice(0,2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+function keyFromName(name) {
+  if (!name) return ''
+  const words = name.replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(Boolean)
+  let key = words.length > 1 ? words.map(w => w[0]).join('') : words[0].slice(0,3)
+  return key.toUpperCase().slice(0,10)
+}
+
+/* delete one & bulk delete */
+async function deleteOne(rec) {
+  try {
+    await axiosClient.delete('', { params: { c: 'Space', m: 'destroy', uuid: rec.uuid } })
+    message.success('Deleted')
+    loadSpaces()
+  } catch (err) {
+    message.error(apiError(err, 'Delete failed'))
+  }
+}
+async function bulkDelete() {
+  const ids = rows.value.filter(r => selectedRowKeys.value.includes(r.uuid)).map(r => r.uuid)
+  if (!ids.length) return
+  try {
+    await Promise.all(ids.map(uuid =>
+      axiosClient.delete('', { params: { c: 'Space', m: 'destroy', uuid } })
+    ))
+    selectedRowKeys.value = []
+    message.success('Deleted selected')
+    loadSpaces()
+  } catch (err) {
+    message.error(apiError(err, 'Bulk delete failed'))
+  }
 }
 
 /* export */
 function exportCSV() {
-  const rows = filteredSorted.value
-  const header = ['Starred','Name','Key','Type','Lead','Status','Updated','URL']
-  const data = rows.map(r => [r.star ? 'Yes':'No', r.name, r.key, r.type, r.lead, r.status, r.updatedAt, r.url])
-  const csv = [header, ...data].map(r => r.map(escapeCSV).join(',')).join('\n')
+  const header = ['UUID','Name','Key','Type','Lead Username','Lead Email','Status','URL','Created','Updated']
+  const data = rows.value.map(r => [
+    r.uuid, r.name, r.key, r.type_name || '', r.lead_username || '', r.lead_email || '',
+    r.status || '', r.url || '', r.created_date || '', r.updated_date || ''
+  ])
+  const csv = [header, ...data].map(r => r.map(csvEscape).join(',')).join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
@@ -514,103 +540,129 @@ function exportCSV() {
   a.click()
   URL.revokeObjectURL(a.href)
 }
-const escapeCSV = (v) => {
+const csvEscape = (v) => {
   const s = String(v ?? '')
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s
 }
 
-/* utils */
-const today = () => new Date().toISOString().slice(0,10)
-function formatDate(d) {
-  try { return new Date(d).toLocaleDateString() } catch { return d }
-}
-function initialsFromName(fullName) {
-  if (!fullName) return ''
-  const parts = fullName.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0,2).toUpperCase()
-  return (parts[0][0] + parts[parts.length-1][0]).toUpperCase()
-}
-function keyFromName(name) {
-  if (!name) return ''
-  const words = name.replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(Boolean)
-  let key = words.length > 1 ? words.map(w => w[0]).join('') : words[0].slice(0,3)
-  key = key.toUpperCase().slice(0,10)
-  return key
-}
-function urlFromKey(k) {
-  if (!k) return ''
-  return `https://example.com/${k.toLowerCase()}`
-}
-
-/* -------------------- CREATE MODAL STATE -------------------- */
+/* -------------------- CREATE -------------------- */
 const createOpen = ref(false)
 const createLoading = ref(false)
-const autoUrl = ref(true)
 const createForm = reactive({
   name: '',
   key: '',
-  type: 'Service management',
-  lead: '',
-  star: false,
-  archived: false,
+  type_id: null,
+  lead_id: null,
+  status: null,
   url: ''
 })
 function openCreate() {
-  // reset form
-  Object.assign(createForm, { name: '', key: '', type: 'Service management', lead: '', star: false, archived: false, url: '' })
-  autoUrl.value = true
+  Object.assign(createForm, { name: '', key: '', type_id: null, lead_id: null, status: null, url: '' })
   createOpen.value = true
 }
-function closeCreate() {
-  createOpen.value = false
-}
+function closeCreate() { createOpen.value = false }
 
-watch(() => createForm.name, (val) => {
-  // gợi ý key theo name, đảm bảo unique khi submit
-  const guess = keyFromName(val)
+function autoKeyFromName() {
+  const guess = keyFromName(createForm.name)
   if (!createForm.key || createForm.key === guess.slice(0, createForm.key.length)) {
     createForm.key = guess
   }
-  if (autoUrl.value) createForm.url = urlFromKey(createForm.key)
-})
-watch(() => createForm.key, (val) => {
-  if (autoUrl.value) createForm.url = urlFromKey(val)
-})
+}
+function watchInputs() {
+  // manual watchers (không dùng watch API để ngắn gọn)
+  const onName = (e) => { createForm.name = e?.target?.value ?? e; autoKeyFromName() }
+  return { onName }
+}
 
 async function submitCreate() {
-  // validate tối thiểu
   if (!createForm.name.trim()) { message.error('Please enter Name'); return }
   if (!createForm.key.trim())  { message.error('Please enter Key'); return }
-  if (!createForm.type)        { message.error('Please select Type'); return }
 
   createLoading.value = true
   try {
-    // unique key
-    const finalKey = uniqueKey(createForm.key.toUpperCase())
-    const { stroke, fill } = iconColorByType(createForm.type)
-    const id = Math.max(0, ...spacesRaw.value.map(s => s.id)) + 1
-    const newItem = {
-      id,
-      star: !!createForm.star,
+    await axiosClient.post('', {
       name: createForm.name.trim(),
-      key: finalKey,
-      type: createForm.type,
-      lead: createForm.lead.trim() || 'Unassigned',
-      leadInitials: initialsFromName(createForm.lead.trim() || 'Unassigned'),
-      iconSvg: makeIcon(stroke, fill),
-      archived: !!createForm.archived,
-      status: createForm.archived ? 'Archived' : 'Active',
-      url: createForm.url.trim() || urlFromKey(finalKey),
-      updatedAt: today()
-    }
-    spacesRaw.value.unshift(newItem)
+      key: createForm.key.trim(),
+      type_id: createForm.type_id || null,
+      lead_id: createForm.lead_id || null,
+      status: createForm.status || null,
+      url: (createForm.url || '').trim() || null
+    }, {
+      params: { c: 'Space', m: 'store' }
+    })
     message.success('Space created')
     createOpen.value = false
-    goFirstPage()
+    goFirstPageAndLoad()
+  } catch (err) {
+    message.error(apiError(err, 'Create failed'))
   } finally {
     createLoading.value = false
   }
 }
+
+/* -------------------- EDIT -------------------- */
+const editOpen = ref(false)
+const editLoading = ref(false)
+const editForm = reactive({
+  uuid: '',
+  name: '',
+  key: '',
+  type_id: null,
+  lead_id: null,
+  status: null,
+  url: ''
+})
+function openEdit(rec) {
+  Object.assign(editForm, {
+    uuid: rec.uuid,
+    name: rec.name,
+    key: rec.key,
+    type_id: rec.type_id || null,
+    lead_id: rec.lead_id || null,
+    status: rec.status || null,
+    url: rec.url || ''
+  })
+  editOpen.value = true
+}
+function closeEdit() { editOpen.value = false }
+
+async function submitEdit() {
+  if (!editForm.uuid) return
+  if (!editForm.name.trim()) { message.error('Please enter Name'); return }
+  if (!editForm.key.trim())  { message.error('Please enter Key'); return }
+
+  editLoading.value = true
+  try {
+    await axiosClient.patch('', {
+      name: editForm.name.trim(),
+      key: editForm.key.trim(),
+      type_id: editForm.type_id || null,
+      lead_id: editForm.lead_id || null,
+      status: editForm.status || null,
+      url: (editForm.url || '').trim() || null
+    }, {
+      params: { c: 'Space', m: 'update', uuid: editForm.uuid }
+    })
+    message.success('Updated')
+    editOpen.value = false
+    loadSpaces()
+  } catch (err) {
+    message.error(apiError(err, 'Update failed'))
+  } finally {
+    editLoading.value = false
+  }
+}
+
+/* -------------------- UTIL -------------------- */
+function apiError(err, fallback) {
+  return err?.response?.data?.message || err?.message || fallback
+}
+
+/* -------------------- INIT -------------------- */
+onMounted(async () => {
+  await Promise.all([loadTypeOptions(), loadLeadOptions(), loadStatusOptions()])
+  await loadSpaces()
+})
 </script>
 
 <style scoped>
@@ -619,8 +671,8 @@ async function submitCreate() {
   background: #fff;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
   color: #222;
-  height: 690px;         /* theo cấu hình bạn đã thêm */
-  overflow-y: auto;      /* theo cấu hình bạn đã thêm */
+  height: 690px;
+  overflow-y: auto;
 }
 
 .page-header {
@@ -645,7 +697,7 @@ async function submitCreate() {
   padding: 10px 12px;
   border: 1px solid #eee;
   border-radius: 8px;
-  min-width: 180px;
+  min-width: 200px;
 }
 .dropdown-pane .row { margin: 6px 0; }
 
@@ -654,29 +706,22 @@ async function submitCreate() {
 .sort-icon { font-size: 12px; opacity: .65; }
 
 .cell-name { display: flex; align-items: center; gap: 8px; }
-.space-icon { width: 20px; height: 20px; display: inline-block; }
 .link-like { color: #1677ff; text-decoration: none; cursor: pointer; }
 
 .lead { display: inline-flex; align-items: center; gap: 6px; }
 .lead-name { white-space: nowrap; }
-
-.star-btn {
-  border: none; background: transparent; cursor: pointer; padding: 0; line-height: 0;
-}
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 .muted { color: #6b7280; }
 
 .pagination { display: flex; justify-content: center; margin-top: 12px; }
 
-/* Modal layout helpers */
-.row-2, .row-3 {
+.row-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.row-3 { grid-template-columns: 1fr 1fr 1fr; }
 @media (max-width: 560px) {
-  .row-2, .row-3 { grid-template-columns: 1fr; }
+  .row-2 { grid-template-columns: 1fr; }
 }
 </style>
