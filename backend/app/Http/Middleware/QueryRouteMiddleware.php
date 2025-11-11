@@ -31,6 +31,7 @@ class QueryRouteMiddleware
 
             return response()->json([
                 'error' => 'Controller or method not found',
+                'path' =>  $controllerClass,
                 'controller' => $controller,
                 'method' => $method,
             ], 404);
